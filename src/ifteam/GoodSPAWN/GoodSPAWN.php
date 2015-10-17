@@ -22,7 +22,6 @@ use pocketmine\event\entity\EntityDamageEvent;
 use pocketmine\event\entity\EntityDamageByEntityEvent;
 use pocketmine\event\entity\ProjectileLaunchEvent;
 use pocketmine\event\player\PlayerLoginEvent;
-use pocketmine\scheduler\CallbackTask;
 use pocketmine\event\player\PlayerQuitEvent;
 use pocketmine\event\entity\ExplosionPrimeEvent;
 
@@ -37,7 +36,9 @@ class GoodSPAWN extends PluginBase implements Listener {
 		$this->initMessage ();
 		$this->messagesUpdate ();
 		
-		$this->config = new Config ( $this->getDataFolder () . "settings.yml", Config::YAML, [ "spawns" => [ ] ] );
+		$this->config = new Config ( $this->getDataFolder () . "settings.yml", Config::YAML, [ 
+				"spawns" => [ ] 
+		] );
 		$this->config_Data = $this->config->getAll ();
 		
 		$this->registerCommand ( $this->get ( "commands-spawn" ), "goodspawn.spawn", $this->get ( "spawn-desc" ) . "/" . $this->get ( "commands-spawn" ) );
@@ -82,31 +83,26 @@ class GoodSPAWN extends PluginBase implements Listener {
 		$commandMap->register ( $name, $command );
 	}
 	public function onLogin(PlayerLoginEvent $event) {
-		if (isset ( $this->config_Data ["backPos"] [$event->getPlayer ()->getName ()] )) {
-			$pos = new Vector3 ( $this->config_Data ["backPos"] [$event->getPlayer ()->getName ()] ["x"], $this->config_Data ["backPos"] [$event->getPlayer ()->getName ()] ["y"], $this->config_Data ["backPos"] [$event->getPlayer ()->getName ()] ["z"] );
-			$event->getPlayer ()->teleport ( $pos, $this->config_Data ["backPos"] [$event->getPlayer ()->getName ()] ["yaw"], $this->config_Data ["backPos"] [$event->getPlayer ()->getName ()] ["pitch"] );
-			unset ( $this->config_Data ["backPos"] [$event->getPlayer ()->getName ()] );
-			return;
+		$defaultLevel = $this->getServer ()->getDefaultLevel ();
+		if ($event->getPlayer ()->getLevel ()->getName () == $defaultLevel->getName ()) {
+			if ($event->getPlayer ()->x == $defaultLevel->getSpawnLocation ()->x)
+				if ($event->getPlayer ()->y == $defaultLevel->getSpawnLocation ()->y)
+					if ($event->getPlayer ()->z == $defaultLevel->getSpawnLocation ()->z)
+						return;
 		}
+		
 		if (! isset ( $this->spawn_queue [$event->getPlayer ()->getName ()] )) {
 			$this->spawn_queue [$event->getPlayer ()->getName ()] = 1;
 			$pos = $this->getSpawn ( $event->getPlayer () );
-			if ($pos != null) $event->getPlayer ()->teleport ( $pos [0], $pos [1], $pos [2] );
+			if ($pos != null)
+				$event->getPlayer ()->teleport ( $pos [0], $pos [1], $pos [2] );
 		}
-	}
-	public function onQuit(PlayerQuitEvent $event) {
-		$this->config_Data ["backPos"] [$event->getPlayer ()->getName ()] ["x"] = $event->getPlayer ()->x;
-		$this->config_Data ["backPos"] [$event->getPlayer ()->getName ()] ["y"] = $event->getPlayer ()->y;
-		$this->config_Data ["backPos"] [$event->getPlayer ()->getName ()] ["z"] = $event->getPlayer ()->z;
-		$this->config_Data ["backPos"] [$event->getPlayer ()->getName ()] ["yaw"] = $event->getPlayer ()->yaw;
-		$this->config_Data ["backPos"] [$event->getPlayer ()->getName ()] ["pitch"] = $event->getPlayer ()->pitch;
 	}
 	public function onRespawn(PlayerRespawnEvent $event) {
 		if (isset ( $this->death_queue [$event->getPlayer ()->getName ()] )) {
 			$pos = $this->getSpawn ( $event->getPlayer () );
-			if ($pos != null) {
-				$this->getServer ()->getScheduler ()->scheduleDelayedTask ( new CallbackTask ( [ $this,"delayRespawn" ], [ $event->getPlayer (),$pos [0] ] ), 20 );
-			}
+			if ($pos != null)
+				$this->getServer ()->getScheduler ()->scheduleDelayedTask ( new GoodSPAWNTask ( $this, $event->getPlayer (), $pos [0] ), 20 );
 			unset ( $this->death_queue [$event->getPlayer ()->getName ()] );
 		}
 	}
@@ -114,15 +110,22 @@ class GoodSPAWN extends PluginBase implements Listener {
 		$player->teleport ( $position );
 	}
 	public function onDeath(PlayerDeathEvent $event) {
-		if (! isset ( $this->death_queue [$event->getEntity ()->getName ()] )) $this->death_queue [$event->getEntity ()->getName ()] = 1;
+		if (! isset ( $this->death_queue [$event->getEntity ()->getName ()] ))
+			$this->death_queue [$event->getEntity ()->getName ()] = 1;
 	}
 	public function getSpawn(Player $player) {
-		if (! isset ( $this->config_Data ["spawns"] ) or count ( $this->config_Data ["spawns"] ) == 0) return null;
+		if (! isset ( $this->config_Data ["spawns"] ) or count ( $this->config_Data ["spawns"] ) == 0)
+			return null;
 		$rand = mt_rand ( 0, count ( $this->config_Data ["spawns"] ) - 1 );
 		$epos = explode ( ":", $this->config_Data ["spawns"] [$rand] );
 		$level = $this->getServer ()->getLevelByName ( $epos [5] );
-		if (! $level instanceof Level) return null;
-		return [ new Position ( $epos [0], $epos [1], $epos [2], $level ),$epos [3],$epos [4] ];
+		if (! $level instanceof Level)
+			return null;
+		return [ 
+				new Position ( $epos [0], $epos [1], $epos [2], $level ),
+				$epos [3],
+				$epos [4] 
+		];
 	}
 	public function onCommand(CommandSender $player, Command $command, $label, Array $args) {
 		if (! $player instanceof Player) {
@@ -158,27 +161,32 @@ class GoodSPAWN extends PluginBase implements Listener {
 			$dy = ( int ) abs ( $tpos->y - $epos [1] );
 			$dz = ( int ) abs ( $tpos->z - $epos [2] );
 			
-			if ($dx <= $range and $dy <= $range and $dz <= $range) return true;
+			if ($dx <= $range and $dy <= $range and $dz <= $range)
+				return true;
 		}
 		return false;
 	}
 	public function onPlace(BlockPlaceEvent $event) {
-		if ($event->getPlayer ()->isOp ()) return;
+		if ($event->getPlayer ()->isOp ())
+			return;
 		if ($this->checkSpawn ( $event->getBlock (), 5 )) {
 			$this->message ( $event->getPlayer (), $this->get ( "cannot-spawn-modify" ) );
 			$event->setCancelled ();
 		}
 	}
 	public function onBreak(BlockBreakEvent $event) {
-		if ($event->getPlayer ()->isOp ()) return;
+		if ($event->getPlayer ()->isOp ())
+			return;
 		if ($this->checkSpawn ( $event->getBlock (), 5 )) {
 			$this->message ( $event->getPlayer (), $this->get ( "cannot-spawn-modify" ) );
 			$event->setCancelled ();
 		}
 	}
 	public function onTouch(PlayerInteractEvent $event) {
-		if (! $event->getAction ()) return;
-		if ($event->getPlayer ()->isOp ()) return;
+		if (! $event->getAction ())
+			return;
+		if ($event->getPlayer ()->isOp ())
+			return;
 		if ($this->checkSpawn ( $event->getBlock (), 5 )) {
 			$this->message ( $event->getPlayer (), $this->get ( "cannot-spawn-modify" ) );
 			$event->setCancelled ();
@@ -187,7 +195,8 @@ class GoodSPAWN extends PluginBase implements Listener {
 	public function onDamage(EntityDamageEvent $event) {
 		if ($event instanceof EntityDamageByEntityEvent) {
 			if ($event->getEntity () instanceof Player) {
-				if ($this->checkSpawn ( $event->getEntity (), 5 )) $event->setCancelled ();
+				if ($this->checkSpawn ( $event->getEntity (), 5 ))
+					$event->setCancelled ();
 			}
 		}
 	}
@@ -201,14 +210,17 @@ class GoodSPAWN extends PluginBase implements Listener {
 		}
 	}
 	public function onExplode(ExplosionPrimeEvent $event) {
-		if ($this->checkSpawn ( $event->getEntity (), 5 )) $event->setCancelled ();
+		if ($this->checkSpawn ( $event->getEntity (), 5 ))
+			$event->setCancelled ();
 	}
 	public function message($player, $text = "", $mark = null) {
-		if ($mark == null) $mark = $this->get ( "default-prefix" );
+		if ($mark == null)
+			$mark = $this->get ( "default-prefix" );
 		$player->sendMessage ( TextFormat::DARK_AQUA . $mark . " " . $text );
 	}
 	public function alert($player, $text = "", $mark = null) {
-		if ($mark == null) $mark = $this->get ( "default-prefix" );
+		if ($mark == null)
+			$mark = $this->get ( "default-prefix" );
 		$player->sendMessage ( TextFormat::RED . $mark . " " . $text );
 	}
 }
